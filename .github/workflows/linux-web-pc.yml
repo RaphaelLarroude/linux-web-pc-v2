@@ -1,0 +1,89 @@
+name: Linux Web PC
+
+on:
+  workflow_dispatch:
+    inputs:
+      vps_user:
+        description: 'Usuário para acessar pelo navegador'
+        required: true
+        default: 'admin'
+      vps_password:
+        description: 'Senha para acessar pelo navegador'
+        required: true
+
+jobs:
+  linux-web-pc:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar sistema, navegador e acesso web
+        env:
+          VPS_USER: ${{ github.event.inputs.vps_user }}
+          VPS_PASSWORD: ${{ github.event.inputs.vps_password }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            xfce4 xfce4-terminal xfce4-goodies \
+            xvfb x11vnc novnc websockify \
+            neofetch tmate wget curl caddy
+
+          wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get install -y ./google-chrome-stable_current_amd64.deb
+
+          CADDY_HASH=$(caddy hash-password --plaintext "$VPS_PASSWORD")
+
+          cat > /tmp/Caddyfile <<EOF
+          :8080 {
+            basic_auth {
+              "$VPS_USER" "$CADDY_HASH"
+            }
+            reverse_proxy localhost:6080
+          }
+          EOF
+
+      - name: Iniciar PC Linux no navegador
+        env:
+          VPS_USER: ${{ github.event.inputs.vps_user }}
+          VPS_PASSWORD: ${{ github.event.inputs.vps_password }}
+        run: |
+          Xvfb :99 -screen 0 1600x900x24 &
+          export DISPLAY=:99
+
+          startxfce4 &
+          sleep 5
+
+          x11vnc -display :99 -forever -shared -passwd "$VPS_PASSWORD" -quiet &
+          websockify --web=/usr/share/novnc 6080 localhost:5900 &
+
+          caddy run --config /tmp/Caddyfile > /tmp/caddy.log 2>&1 &
+          sleep 3
+
+          cloudflared tunnel --url http://localhost:8080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+
+          for i in $(seq 1 60); do
+            URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/cloudflared.log | head -n1 || true)
+            if [ -n "$URL" ]; then break; fi
+            sleep 2
+          done
+
+          if [ -z "$URL" ]; then
+            echo 'Não foi possível criar o endereço público.'
+            cat /tmp/cloudflared.log
+            exit 1
+          fi
+
+          echo '===================================================='
+          echo "PC LINUX NO NAVEGADOR: $URL"
+          echo "Usuário: $VPS_USER"
+          echo 'Senha: a que você definiu ao iniciar o workflow'
+          echo '===================================================='
+
+          tmate -S /tmp/tmate.sock new-session -d
+          echo 'TMATE SSH:'
+          tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}'
+          echo 'TMATE WEB:'
+          tmate -S /tmp/tmate.sock display -p '#{tmate_web}'
+
+          wait
