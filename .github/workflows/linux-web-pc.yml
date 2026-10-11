@@ -23,7 +23,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             xfce4 xfce4-terminal xfce4-goodies \
-            xfce4-docklike-plugin papirus-icon-theme \
+            plank papirus-icon-theme \
             adwaita-qt lxappearance \
             xvfb x11vnc novnc websockify \
             neofetch tmate wget curl dbus-x11
@@ -39,7 +39,8 @@ jobs:
       - name: Criar interface inspirada no Zorin OS
         run: |
           mkdir -p ~/.config/xfce4/xfconf/xfce-perchannel-xml
-          mkdir -p ~/.config/xfce4/panel
+          mkdir -p ~/.config/plank/dock1/launchers
+          mkdir -p ~/.config/autostart
 
           cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml <<'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -81,55 +82,28 @@ jobs:
           </channel>
           EOF
 
-          cat > ~/.config/xfce4/panel/zorin-launcher.sh <<'EOF'
-          #!/usr/bin/env bash
-          xfce4-appfinder
-          EOF
-          chmod +x ~/.config/xfce4/panel/zorin-launcher.sh
-
-          cat > ~/.config/xfce4/panel/whiskermenu-1.rc <<'EOF'
-          [Configuration]
-          button-title=Applications
-          show-button-title=false
-          menu-width=520
-          menu-height=580
-          position-search-alternate=true
+          cat > ~/.config/plank/dock1/launchers/chrome.dockitem <<'EOF'
+          [PlankDockItemPreferences]
+          Launcher=file:///usr/share/applications/google-chrome.desktop
           EOF
 
-          cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <channel name="xfce4-panel" version="1.0">
-            <property name="panels" type="array">
-              <value type="int" value="1"/>
-              <property name="panel-1" type="empty">
-                <property name="position" type="string" value="p=10;x=0;y=0"/>
-                <property name="length" type="uint" value="100"/>
-                <property name="position-locked" type="bool" value="true"/>
-                <property name="size" type="uint" value="46"/>
-                <property name="background-style" type="uint" value="1"/>
-                <property name="background-rgba" type="array">
-                  <value type="double" value="0.06"/>
-                  <value type="double" value="0.08"/>
-                  <value type="double" value="0.14"/>
-                  <value type="double" value="0.92"/>
-                </property>
-                <property name="plugin-ids" type="array">
-                  <value type="int" value="1"/>
-                  <value type="int" value="2"/>
-                  <value type="int" value="3"/>
-                  <value type="int" value="4"/>
-                  <value type="int" value="5"/>
-                </property>
-              </property>
-            </property>
-            <property name="plugins" type="empty">
-              <property name="plugin-1" type="string" value="whiskermenu"/>
-              <property name="plugin-2" type="string" value="separator"/>
-              <property name="plugin-3" type="string" value="docklike"/>
-              <property name="plugin-4" type="string" value="separator"/>
-              <property name="plugin-5" type="string" value="clock"/>
-            </property>
-          </channel>
+          cat > ~/.config/plank/dock1/launchers/terminal.dockitem <<'EOF'
+          [PlankDockItemPreferences]
+          Launcher=file:///usr/share/applications/xfce4-terminal.desktop
+          EOF
+
+          cat > ~/.config/plank/dock1/launchers/files.dockitem <<'EOF'
+          [PlankDockItemPreferences]
+          Launcher=file:///usr/share/applications/thunar.desktop
+          EOF
+
+          cat > ~/.config/autostart/plank.desktop <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=Plank Dock
+          Exec=plank
+          OnlyShowIn=XFCE;
+          X-GNOME-Autostart-enabled=true
           EOF
 
       - name: Iniciar PC Linux no navegador
@@ -145,6 +119,7 @@ jobs:
           dbus-launch --exit-with-session startxfce4 > /tmp/xfce.log 2>&1 &
           sleep 10
 
+          DISPLAY=:99 plank > /tmp/plank.log 2>&1 &
           DISPLAY=:99 google-chrome --no-sandbox --disable-dev-shm-usage --start-maximized > /tmp/chrome.log 2>&1 &
           sleep 3
 
@@ -192,7 +167,7 @@ jobs:
             echo "**Usuário:** \`$VPS_USER\`"
             echo '**Senha:** a que você definiu ao iniciar o workflow'
             echo ''
-            echo 'Interface: XFCE moderna inspirada no Zorin OS, com dock, tema escuro e ícones Papirus.'
+            echo 'Interface: XFCE moderna inspirada no Zorin OS, com dock Plank, tema escuro e ícones Papirus.'
           } >> "$GITHUB_STEP_SUMMARY"
 
           echo '===================================================='
