@@ -18,13 +18,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Instalar sistema, navegador e acesso web
+      - name: Instalar PC Linux com interface moderna
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             xfce4 xfce4-terminal xfce4-goodies \
+            xfce4-docklike-plugin papirus-icon-theme \
+            adwaita-qt lxappearance \
             xvfb x11vnc novnc websockify \
-            neofetch tmate wget curl
+            neofetch tmate wget curl dbus-x11
 
           wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
           sudo apt-get install -y ./google-chrome-stable_current_amd64.deb
@@ -34,19 +36,114 @@ jobs:
           sudo install -m 755 /tmp/cloudflared /usr/local/bin/cloudflared
           cloudflared --version
 
+      - name: Criar interface inspirada no Zorin OS
+        run: |
+          mkdir -p ~/.config/xfce4/xfconf/xfce-perchannel-xml
+          mkdir -p ~/.config/xfce4/panel
+
+          cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <channel name="xsettings" version="1.0">
+            <property name="Net" type="empty">
+              <property name="ThemeName" type="string" value="Adwaita-dark"/>
+              <property name="IconThemeName" type="string" value="Papirus-Dark"/>
+            </property>
+            <property name="Gtk" type="empty">
+              <property name="FontName" type="string" value="Sans 10"/>
+            </property>
+          </channel>
+          EOF
+
+          cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <channel name="xfce4-desktop" version="1.0">
+            <property name="backdrop" type="empty">
+              <property name="screen0" type="empty">
+                <property name="monitor0" type="empty">
+                  <property name="workspace0" type="empty">
+                    <property name="color-style" type="int" value="0"/>
+                    <property name="rgba1" type="array">
+                      <value type="double" value="0.047"/>
+                      <value type="double" value="0.071"/>
+                      <value type="double" value="0.133"/>
+                      <value type="double" value="1.0"/>
+                    </property>
+                    <property name="rgba2" type="array">
+                      <value type="double" value="0.075"/>
+                      <value type="double" value="0.137"/>
+                      <value type="double" value="0.255"/>
+                      <value type="double" value="1.0"/>
+                    </property>
+                  </property>
+                </property>
+              </property>
+            </property>
+          </channel>
+          EOF
+
+          cat > ~/.config/xfce4/panel/zorin-launcher.sh <<'EOF'
+          #!/usr/bin/env bash
+          xfce4-appfinder
+          EOF
+          chmod +x ~/.config/xfce4/panel/zorin-launcher.sh
+
+          cat > ~/.config/xfce4/panel/whiskermenu-1.rc <<'EOF'
+          [Configuration]
+          button-title=Applications
+          show-button-title=false
+          menu-width=520
+          menu-height=580
+          position-search-alternate=true
+          EOF
+
+          cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <channel name="xfce4-panel" version="1.0">
+            <property name="panels" type="array">
+              <value type="int" value="1"/>
+              <property name="panel-1" type="empty">
+                <property name="position" type="string" value="p=10;x=0;y=0"/>
+                <property name="length" type="uint" value="100"/>
+                <property name="position-locked" type="bool" value="true"/>
+                <property name="size" type="uint" value="46"/>
+                <property name="background-style" type="uint" value="1"/>
+                <property name="background-rgba" type="array">
+                  <value type="double" value="0.06"/>
+                  <value type="double" value="0.08"/>
+                  <value type="double" value="0.14"/>
+                  <value type="double" value="0.92"/>
+                </property>
+                <property name="plugin-ids" type="array">
+                  <value type="int" value="1"/>
+                  <value type="int" value="2"/>
+                  <value type="int" value="3"/>
+                  <value type="int" value="4"/>
+                  <value type="int" value="5"/>
+                </property>
+              </property>
+            </property>
+            <property name="plugins" type="empty">
+              <property name="plugin-1" type="string" value="whiskermenu"/>
+              <property name="plugin-2" type="string" value="separator"/>
+              <property name="plugin-3" type="string" value="docklike"/>
+              <property name="plugin-4" type="string" value="separator"/>
+              <property name="plugin-5" type="string" value="clock"/>
+            </property>
+          </channel>
+          EOF
+
       - name: Iniciar PC Linux no navegador
         env:
           VPS_USER: ${{ github.event.inputs.vps_user }}
           VPS_PASSWORD: ${{ github.event.inputs.vps_password }}
         run: |
           set -e
-
           Xvfb :99 -screen 0 1600x900x24 > /tmp/xvfb.log 2>&1 &
           export DISPLAY=:99
           sleep 2
 
-          startxfce4 > /tmp/xfce.log 2>&1 &
-          sleep 8
+          dbus-launch --exit-with-session startxfce4 > /tmp/xfce.log 2>&1 &
+          sleep 10
 
           DISPLAY=:99 google-chrome --no-sandbox --disable-dev-shm-usage --start-maximized > /tmp/chrome.log 2>&1 &
           sleep 3
@@ -58,9 +155,7 @@ jobs:
           websockify --web=/usr/share/novnc 6080 localhost:5900 > /tmp/novnc.log 2>&1 &
 
           for i in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:6080/vnc.html > /dev/null; then
-              break
-            fi
+            if curl --fail --silent http://127.0.0.1:6080/vnc.html > /dev/null; then break; fi
             sleep 2
           done
 
@@ -89,7 +184,6 @@ jobs:
           fi
 
           ACCESS_URL="$URL/vnc.html?autoconnect=true&resize=scale"
-
           {
             echo '## Seu PC Linux está pronto'
             echo ''
@@ -98,7 +192,7 @@ jobs:
             echo "**Usuário:** \`$VPS_USER\`"
             echo '**Senha:** a que você definiu ao iniciar o workflow'
             echo ''
-            echo 'Após abrir o link, digite a senha do VNC quando ela for solicitada.'
+            echo 'Interface: XFCE moderna inspirada no Zorin OS, com dock, tema escuro e ícones Papirus.'
           } >> "$GITHUB_STEP_SUMMARY"
 
           echo '===================================================='
@@ -107,11 +201,4 @@ jobs:
           echo "USUÁRIO: $VPS_USER"
           echo 'SENHA: a que você definiu ao iniciar o workflow'
           echo '===================================================='
-
-          tmate -S /tmp/tmate.sock new-session -d
-          echo 'TMATE SSH:'
-          tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}'
-          echo 'TMATE WEB:'
-          tmate -S /tmp/tmate.sock display -p '#{tmate_web}'
-
           wait
