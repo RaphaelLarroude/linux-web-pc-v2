@@ -1,149 +1,66 @@
-name: Linux Web PC
+name: Linux Mint Web Desktop
 
 on:
   workflow_dispatch:
     inputs:
-      vps_user:
-        description: 'Usuário para acessar pelo navegador'
-        required: true
-        default: 'admin'
       vps_password:
-        description: 'Senha para acessar pelo navegador'
+        description: 'Senha para entrar no desktop pelo navegador'
         required: true
 
 jobs:
-  linux-web-pc:
+  linux-mint-web-desktop:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Instalar PC Linux com interface moderna
+      - name: Instalar Docker e Cloudflared
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            xfce4 xfce4-terminal xfce4-goodies \
-            plank papirus-icon-theme \
-            adwaita-qt lxappearance \
-            xvfb x11vnc novnc websockify \
-            neofetch tmate wget curl dbus-x11
-
-          wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-          sudo apt-get install -y ./google-chrome-stable_current_amd64.deb
+          sudo apt-get install -y docker.io curl wget
+          sudo systemctl start docker
 
           wget -qO /tmp/cloudflared \
             https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           sudo install -m 755 /tmp/cloudflared /usr/local/bin/cloudflared
           cloudflared --version
 
-      - name: Criar interface inspirada no Zorin OS
-        run: |
-          mkdir -p ~/.config/xfce4/xfconf/xfce-perchannel-xml
-          mkdir -p ~/.config/plank/dock1/launchers
-          mkdir -p ~/.config/autostart
-
-          cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <channel name="xsettings" version="1.0">
-            <property name="Net" type="empty">
-              <property name="ThemeName" type="string" value="Adwaita-dark"/>
-              <property name="IconThemeName" type="string" value="Papirus-Dark"/>
-            </property>
-            <property name="Gtk" type="empty">
-              <property name="FontName" type="string" value="Sans 10"/>
-            </property>
-          </channel>
-          EOF
-
-          cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <channel name="xfce4-desktop" version="1.0">
-            <property name="backdrop" type="empty">
-              <property name="screen0" type="empty">
-                <property name="monitor0" type="empty">
-                  <property name="workspace0" type="empty">
-                    <property name="color-style" type="int" value="0"/>
-                    <property name="rgba1" type="array">
-                      <value type="double" value="0.047"/>
-                      <value type="double" value="0.071"/>
-                      <value type="double" value="0.133"/>
-                      <value type="double" value="1.0"/>
-                    </property>
-                    <property name="rgba2" type="array">
-                      <value type="double" value="0.075"/>
-                      <value type="double" value="0.137"/>
-                      <value type="double" value="0.255"/>
-                      <value type="double" value="1.0"/>
-                    </property>
-                  </property>
-                </property>
-              </property>
-            </property>
-          </channel>
-          EOF
-
-          cat > ~/.config/plank/dock1/launchers/chrome.dockitem <<'EOF'
-          [PlankDockItemPreferences]
-          Launcher=file:///usr/share/applications/google-chrome.desktop
-          EOF
-
-          cat > ~/.config/plank/dock1/launchers/terminal.dockitem <<'EOF'
-          [PlankDockItemPreferences]
-          Launcher=file:///usr/share/applications/xfce4-terminal.desktop
-          EOF
-
-          cat > ~/.config/plank/dock1/launchers/files.dockitem <<'EOF'
-          [PlankDockItemPreferences]
-          Launcher=file:///usr/share/applications/thunar.desktop
-          EOF
-
-          cat > ~/.config/autostart/plank.desktop <<'EOF'
-          [Desktop Entry]
-          Type=Application
-          Name=Plank Dock
-          Exec=plank
-          OnlyShowIn=XFCE;
-          X-GNOME-Autostart-enabled=true
-          EOF
-
-      - name: Iniciar PC Linux no navegador
+      - name: Iniciar Linux Mint XFCE no navegador
         env:
-          VPS_USER: ${{ github.event.inputs.vps_user }}
-          VPS_PASSWORD: ${{ github.event.inputs.vps_password }}
+          DESKTOP_PASSWORD: ${{ github.event.inputs.vps_password }}
         run: |
           set -e
-          Xvfb :99 -screen 0 1600x900x24 > /tmp/xvfb.log 2>&1 &
-          export DISPLAY=:99
-          sleep 2
 
-          dbus-launch --exit-with-session startxfce4 > /tmp/xfce.log 2>&1 &
-          sleep 10
+          sudo docker pull kasmweb/desktop:1.16.1
+          sudo docker run -d \
+            --name linux-mint-web-desktop \
+            --shm-size="1gb" \
+            --security-opt seccomp=unconfined \
+            -e VNC_PW="$DESKTOP_PASSWORD" \
+            -e VNC_RESOLUTION=1600x900 \
+            -p 6901:6901 \
+            --restart no \
+            kasmweb/desktop:1.16.1
 
-          DISPLAY=:99 plank > /tmp/plank.log 2>&1 &
-          DISPLAY=:99 google-chrome --no-sandbox --disable-dev-shm-usage --start-maximized > /tmp/chrome.log 2>&1 &
-          sleep 3
-
-          x11vnc -display :99 -forever -shared -rfbport 5900 \
-            -passwd "$VPS_PASSWORD" -quiet > /tmp/x11vnc.log 2>&1 &
-          sleep 3
-
-          websockify --web=/usr/share/novnc 6080 localhost:5900 > /tmp/novnc.log 2>&1 &
-
-          for i in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:6080/vnc.html > /dev/null; then break; fi
+          for i in $(seq 1 60); do
+            if curl --fail --silent --insecure https://127.0.0.1:6901/ > /dev/null; then
+              break
+            fi
             sleep 2
           done
 
-          if ! curl --fail --silent http://127.0.0.1:6080/vnc.html > /dev/null; then
-            echo 'O noVNC não iniciou corretamente.'
-            echo '--- Xvfb ---'; cat /tmp/xvfb.log || true
-            echo '--- XFCE ---'; cat /tmp/xfce.log || true
-            echo '--- x11vnc ---'; cat /tmp/x11vnc.log || true
-            echo '--- noVNC ---'; cat /tmp/novnc.log || true
+          if ! curl --fail --silent --insecure https://127.0.0.1:6901/ > /dev/null; then
+            echo 'O desktop Linux Mint não iniciou corretamente.'
+            sudo docker logs linux-mint-web-desktop || true
             exit 1
           fi
 
-          cloudflared tunnel --url http://127.0.0.1:6080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+          sudo docker exec linux-mint-web-desktop bash -lc '
+            apt-get update && \
+            DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              firefox neofetch tmate papirus-icon-theme \
+              || true
+          ' || true
+
+          cloudflared tunnel --url https://127.0.0.1:6901 --no-autoupdate --no-tls-verify > /tmp/cloudflared.log 2>&1 &
 
           URL=""
           for i in $(seq 1 60); do
@@ -155,25 +72,26 @@ jobs:
           if [ -z "$URL" ]; then
             echo 'Não foi possível criar o endereço público.'
             cat /tmp/cloudflared.log
+            sudo docker logs linux-mint-web-desktop || true
             exit 1
           fi
 
-          ACCESS_URL="$URL/vnc.html?autoconnect=true&resize=scale"
           {
-            echo '## Seu PC Linux está pronto'
+            echo '## Linux Mint Web Desktop pronto'
             echo ''
-            echo "**Acesse pelo navegador:** $ACCESS_URL"
+            echo "**Link para acessar:** $URL"
             echo ''
-            echo "**Usuário:** \`$VPS_USER\`"
+            echo '**Usuário:** `kasm_user`'
             echo '**Senha:** a que você definiu ao iniciar o workflow'
             echo ''
-            echo 'Interface: XFCE moderna inspirada no Zorin OS, com dock Plank, tema escuro e ícones Papirus.'
+            echo 'O desktop inclui uma interface Linux Mint/XFCE, navegador Firefox, terminal e gerenciador de arquivos.'
           } >> "$GITHUB_STEP_SUMMARY"
 
           echo '===================================================='
-          echo 'SEU PC LINUX ESTÁ PRONTO'
-          echo "LINK PARA ACESSAR: $ACCESS_URL"
-          echo "USUÁRIO: $VPS_USER"
+          echo 'LINUX MINT WEB DESKTOP PRONTO'
+          echo "LINK PARA ACESSAR: $URL"
+          echo 'USUÁRIO: kasm_user'
           echo 'SENHA: a que você definiu ao iniciar o workflow'
           echo '===================================================='
-          wait
+
+          sudo docker logs -f linux-mint-web-desktop
