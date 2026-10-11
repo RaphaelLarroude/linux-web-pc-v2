@@ -1,68 +1,80 @@
-name: Linux Mint Web Desktop
+name: Linux Web PC
 
 on:
   workflow_dispatch:
     inputs:
+      vps_user:
+        description: 'Usuário para identificar a sessão'
+        required: true
+        default: 'admin'
       vps_password:
-        description: 'Senha para entrar no desktop pelo navegador'
+        description: 'Senha para acessar o desktop pelo navegador'
         required: true
 
 jobs:
-  linux-mint-web-desktop:
+  linux-web-pc:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Preparar Docker e Cloudflared
+      - uses: actions/checkout@v4
+
+      - name: Instalar desktop e ferramentas
         run: |
-          set -e
-          docker --version
-          sudo systemctl start docker || true
-          sudo systemctl enable docker || true
-          docker info
+          sudo apt-get update
+          sudo apt-get install -y \
+            xfce4 xfce4-terminal xfce4-goodies \
+            xvfb x11vnc novnc websockify \
+            neofetch tmate wget curl dbus-x11
+
+          wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get install -y ./google-chrome-stable_current_amd64.deb
 
           wget -qO /tmp/cloudflared \
             https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           sudo install -m 755 /tmp/cloudflared /usr/local/bin/cloudflared
           cloudflared --version
 
-      - name: Iniciar Linux Mint XFCE no navegador
+      - name: Iniciar PC Linux no navegador
         env:
-          DESKTOP_PASSWORD: ${{ github.event.inputs.vps_password }}
+          VPS_USER: ${{ github.event.inputs.vps_user }}
+          VPS_PASSWORD: ${{ github.event.inputs.vps_password }}
         run: |
           set -e
 
-          docker pull kasmweb/desktop:1.16.1
-          docker run -d \
-            --name linux-mint-web-desktop \
-            --shm-size="1gb" \
-            --security-opt seccomp=unconfined \
-            -e VNC_PW="$DESKTOP_PASSWORD" \
-            -e VNC_RESOLUTION=1600x900 \
-            -p 6901:6901 \
-            --restart no \
-            kasmweb/desktop:1.16.1
+          Xvfb :99 -screen 0 1600x900x24 > /tmp/xvfb.log 2>&1 &
+          export DISPLAY=:99
+          sleep 2
 
-          for i in $(seq 1 60); do
-            if curl --fail --silent --insecure https://127.0.0.1:6901/ > /dev/null; then
+          dbus-launch --exit-with-session startxfce4 > /tmp/xfce.log 2>&1 &
+          sleep 10
+
+          DISPLAY=:99 google-chrome --no-sandbox --disable-dev-shm-usage --start-maximized > /tmp/chrome.log 2>&1 &
+          sleep 3
+
+          x11vnc -display :99 -forever -shared -rfbport 5900 \
+            -passwd "$VPS_PASSWORD" -quiet > /tmp/x11vnc.log 2>&1 &
+          sleep 3
+
+          websockify --web=/usr/share/novnc 6080 localhost:5900 > /tmp/novnc.log 2>&1 &
+
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:6080/vnc.html > /dev/null; then
               break
             fi
             sleep 2
           done
 
-          if ! curl --fail --silent --insecure https://127.0.0.1:6901/ > /dev/null; then
-            echo 'O desktop Linux Mint não iniciou corretamente.'
-            docker logs linux-mint-web-desktop || true
+          if ! curl --fail --silent http://127.0.0.1:6080/vnc.html > /dev/null; then
+            echo 'O noVNC não iniciou corretamente.'
+            echo '--- Xvfb ---'; cat /tmp/xvfb.log || true
+            echo '--- XFCE ---'; cat /tmp/xfce.log || true
+            echo '--- Chrome ---'; cat /tmp/chrome.log || true
+            echo '--- x11vnc ---'; cat /tmp/x11vnc.log || true
+            echo '--- noVNC ---'; cat /tmp/novnc.log || true
             exit 1
           fi
 
-          docker exec linux-mint-web-desktop bash -lc '
-            apt-get update && \
-            DEBIAN_FRONTEND=noninteractive apt-get install -y \
-              firefox neofetch tmate papirus-icon-theme \
-              || true
-          ' || true
-
-          cloudflared tunnel --url https://127.0.0.1:6901 --no-autoupdate --no-tls-verify > /tmp/cloudflared.log 2>&1 &
+          cloudflared tunnel --url http://127.0.0.1:6080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
 
           URL=""
           for i in $(seq 1 60); do
@@ -74,26 +86,27 @@ jobs:
           if [ -z "$URL" ]; then
             echo 'Não foi possível criar o endereço público.'
             cat /tmp/cloudflared.log
-            docker logs linux-mint-web-desktop || true
             exit 1
           fi
 
+          ACCESS_URL="$URL/vnc.html?autoconnect=true&resize=scale"
+
           {
-            echo '## Linux Mint Web Desktop pronto'
+            echo '## Seu PC Linux está pronto'
             echo ''
-            echo "**Link para acessar:** $URL"
+            echo "**Link para acessar:** $ACCESS_URL"
             echo ''
-            echo '**Usuário:** `kasm_user`'
-            echo '**Senha:** a que você definiu ao iniciar o workflow'
+            echo "**Usuário da sessão:** \`$VPS_USER\`"
+            echo '**Senha VNC:** a que você definiu ao iniciar o workflow'
             echo ''
-            echo 'O desktop inclui uma interface Linux Mint/XFCE, navegador Firefox, terminal e gerenciador de arquivos.'
+            echo 'Abra o link e digite a senha VNC quando solicitada.'
           } >> "$GITHUB_STEP_SUMMARY"
 
           echo '===================================================='
-          echo 'LINUX MINT WEB DESKTOP PRONTO'
-          echo "LINK PARA ACESSAR: $URL"
-          echo 'USUÁRIO: kasm_user'
-          echo 'SENHA: a que você definiu ao iniciar o workflow'
+          echo 'SEU PC LINUX ESTÁ PRONTO'
+          echo "LINK PARA ACESSAR: $ACCESS_URL"
+          echo "USUÁRIO DA SESSÃO: $VPS_USER"
+          echo 'SENHA VNC: a que você definiu ao iniciar o workflow'
           echo '===================================================='
 
-          docker logs -f linux-mint-web-desktop
+          wait
