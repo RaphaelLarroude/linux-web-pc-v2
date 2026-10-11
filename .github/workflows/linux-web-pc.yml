@@ -62,6 +62,7 @@ jobs:
 
           cloudflared tunnel --url http://localhost:8080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
 
+          URL=""
           for i in $(seq 1 60); do
             URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/cloudflared.log | head -n1 || true)
             if [ -n "$URL" ]; then break; fi
@@ -74,10 +75,22 @@ jobs:
             exit 1
           fi
 
+          {
+            echo '## ✅ Seu PC Linux está pronto'
+            echo ''
+            echo "**Acesse pelo navegador:** $URL"
+            echo ''
+            echo "**Usuário:** `$VPS_USER`"
+            echo '**Senha:** a que você definiu ao iniciar o workflow'
+            echo ''
+            echo 'Depois de abrir o link, clique em **Connect** e digite novamente a mesma senha.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
           echo '===================================================='
-          echo "PC LINUX NO NAVEGADOR: $URL"
-          echo "Usuário: $VPS_USER"
-          echo 'Senha: a que você definiu ao iniciar o workflow'
+          echo '✅ SEU PC LINUX ESTÁ PRONTO'
+          echo "🔗 LINK PARA ACESSAR: $URL"
+          echo "👤 USUÁRIO: $VPS_USER"
+          echo '🔑 SENHA: a que você definiu ao iniciar o workflow'
           echo '===================================================='
 
           tmate -S /tmp/tmate.sock new-session -d
