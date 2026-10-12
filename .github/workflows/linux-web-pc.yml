@@ -5,11 +5,14 @@ on:
     inputs:
       vps_user:
         description: 'Usuário para identificar a sessão'
-        required: true
+        required: false
         default: 'admin'
       vps_password:
         description: 'Senha para acessar o desktop pelo navegador'
-        required: true
+        required: false
+
+  schedule:
+    - cron: '0 */6 * * *'
 
 jobs:
   linux-web-pc:
