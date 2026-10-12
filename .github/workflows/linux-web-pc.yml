@@ -7,9 +7,6 @@ on:
         description: 'Usuário para identificar a sessão'
         required: false
         default: 'admin'
-      vps_password:
-        description: 'Senha para acessar o desktop pelo navegador'
-        required: false
 
   schedule:
     - cron: '0 */6 * * *'
@@ -46,7 +43,6 @@ jobs:
       - name: Iniciar PC Linux no navegador
         env:
           VPS_USER: ${{ github.event.inputs.vps_user }}
-          VPS_PASSWORD: ${{ github.event.inputs.vps_password }}
         run: |
           set -e
           Xvfb :99 -screen 0 1600x900x24 > /tmp/xvfb.log 2>&1 &
@@ -60,7 +56,8 @@ jobs:
           sleep 3
 
           x11vnc -display :99 -forever -shared -rfbport 5900 \
-            -passwd "$VPS_PASSWORD" -quiet > /tmp/x11vnc.log 2>&1 &
+            -nopw -quiet > /tmp/x11vnc.log 2>&1 &
+
           websockify --web=/usr/share/novnc 6080 localhost:5900 > /tmp/novnc.log 2>&1 &
 
           for i in $(seq 1 30); do
@@ -74,6 +71,7 @@ jobs:
           fi
 
           cloudflared tunnel --url http://127.0.0.1:6080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+
           URL=""
           for i in $(seq 1 60); do
             URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/cloudflared.log | head -n1 || true)
@@ -88,13 +86,14 @@ jobs:
           fi
 
           ACCESS_URL="$URL/vnc.html?autoconnect=true&resize=scale"
+
           {
             echo '## Seu PC Linux está pronto'
             echo ''
             echo "**Link para acessar:** $ACCESS_URL"
             echo ''
             echo "**Usuário da sessão:** \`$VPS_USER\`"
-            echo '**Senha VNC:** a que você definiu ao iniciar o workflow'
+            echo '**Acesso sem senha ativado. Qualquer pessoa com o link poderá acessar o desktop.**'
             echo ''
             echo '**Backup seguro:** salve seus arquivos em `~/persist`. Ao encerrar a execução, o backup aparecerá como artifact `linux-web-pc-backup`.'
           } >> "$GITHUB_STEP_SUMMARY"
