@@ -14,9 +14,15 @@ on:
 jobs:
   linux-web-pc:
     runs-on: ubuntu-latest
+    timeout-minutes: 350
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Preparar pasta persistente
+        run: |
+          mkdir -p "$HOME/persist"
+          echo 'Salve seus arquivos em ~/persist para incluí-los no backup final.'
 
       - name: Instalar desktop e ferramentas
         run: |
@@ -40,7 +46,6 @@ jobs:
           VPS_PASSWORD: ${{ github.event.inputs.vps_password }}
         run: |
           set -e
-
           Xvfb :99 -screen 0 1600x900x24 > /tmp/xvfb.log 2>&1 &
           export DISPLAY=:99
           sleep 2
@@ -53,29 +58,19 @@ jobs:
 
           x11vnc -display :99 -forever -shared -rfbport 5900 \
             -passwd "$VPS_PASSWORD" -quiet > /tmp/x11vnc.log 2>&1 &
-          sleep 3
-
           websockify --web=/usr/share/novnc 6080 localhost:5900 > /tmp/novnc.log 2>&1 &
 
           for i in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:6080/vnc.html > /dev/null; then
-              break
-            fi
+            if curl --fail --silent http://127.0.0.1:6080/vnc.html > /dev/null; then break; fi
             sleep 2
           done
 
           if ! curl --fail --silent http://127.0.0.1:6080/vnc.html > /dev/null; then
             echo 'O noVNC não iniciou corretamente.'
-            echo '--- Xvfb ---'; cat /tmp/xvfb.log || true
-            echo '--- XFCE ---'; cat /tmp/xfce.log || true
-            echo '--- Chrome ---'; cat /tmp/chrome.log || true
-            echo '--- x11vnc ---'; cat /tmp/x11vnc.log || true
-            echo '--- noVNC ---'; cat /tmp/novnc.log || true
             exit 1
           fi
 
           cloudflared tunnel --url http://127.0.0.1:6080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
-
           URL=""
           for i in $(seq 1 60); do
             URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/cloudflared.log | head -n1 || true)
@@ -90,7 +85,6 @@ jobs:
           fi
 
           ACCESS_URL="$URL/vnc.html?autoconnect=true&resize=scale"
-
           {
             echo '## Seu PC Linux está pronto'
             echo ''
@@ -99,14 +93,17 @@ jobs:
             echo "**Usuário da sessão:** \`$VPS_USER\`"
             echo '**Senha VNC:** a que você definiu ao iniciar o workflow'
             echo ''
-            echo 'Abra o link e digite a senha VNC quando solicitada.'
+            echo '**Backup seguro:** salve seus arquivos em `~/persist`. Ao encerrar a execução, o backup aparecerá como artifact `linux-web-pc-backup`.'
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo '===================================================='
-          echo 'SEU PC LINUX ESTÁ PRONTO'
           echo "LINK PARA ACESSAR: $ACCESS_URL"
-          echo "USUÁRIO DA SESSÃO: $VPS_USER"
-          echo 'SENHA VNC: a que você definiu ao iniciar o workflow'
-          echo '===================================================='
+          sleep 20700
 
-          wait
+      - name: Salvar arquivos persistentes como backup
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-web-pc-backup
+          path: /home/runner/persist
+          if-no-files-found: warn
+          retention-days: 7
