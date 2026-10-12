@@ -8,9 +8,6 @@ on:
         required: false
         default: 'admin'
 
-  schedule:
-    - cron: '0 */5 * * *'
-
 jobs:
   linux-web-pc:
     runs-on: ubuntu-latest
@@ -45,6 +42,25 @@ jobs:
           VPS_USER: ${{ github.event.inputs.vps_user }}
         run: |
           set -e
+
+          # Tarefa inútil em segundo plano:
+          # roda por 5 minutos, para por 25 minutos e repete.
+          (
+            while true; do
+              echo "[$(date)] Iniciando tarefa inútil..." >> "$HOME/persist/tarefa-inutil.log"
+
+              fim=$((SECONDS + 300))
+
+              while [ $SECONDS -lt $fim ]; do
+                echo "[$(date)] Rodando tarefa inútil..." >> "$HOME/persist/tarefa-inutil.log"
+                sleep 30
+              done
+
+              echo "[$(date)] Tarefa inútil finalizada. Aguardando 25 minutos..." >> "$HOME/persist/tarefa-inutil.log"
+              sleep 1500
+            done
+          ) &
+
           Xvfb :99 -screen 0 1600x900x24 > /tmp/xvfb.log 2>&1 &
           export DISPLAY=:99
           sleep 2
@@ -99,6 +115,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           echo "LINK PARA ACESSAR: $ACCESS_URL"
+
+          # Mantém o workflow ativo por 5 horas e 45 minutos.
           sleep 20700
 
       - name: Salvar arquivos persistentes como backup
