@@ -5,21 +5,18 @@ on:
     inputs:
       vps_user:
         description: 'Usuário para identificar a sessão'
-        required: false
+        required: true
         default: 'admin'
+      vps_password:
+        description: 'Senha para acessar o desktop pelo navegador'
+        required: true
 
 jobs:
   linux-web-pc:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Preparar pasta persistente
-        run: |
-          mkdir -p "$HOME/persist"
-          echo 'Salve seus arquivos em ~/persist para incluí-los no backup final.'
 
       - name: Instalar desktop e ferramentas
         run: |
@@ -40,26 +37,9 @@ jobs:
       - name: Iniciar PC Linux no navegador
         env:
           VPS_USER: ${{ github.event.inputs.vps_user }}
+          VPS_PASSWORD: ${{ github.event.inputs.vps_password }}
         run: |
           set -e
-
-          # Tarefa inútil em segundo plano:
-          # roda por 5 minutos, para por 25 minutos e repete.
-          (
-            while true; do
-              echo "[$(date)] Iniciando tarefa inútil..." >> "$HOME/persist/tarefa-inutil.log"
-
-              fim=$((SECONDS + 300))
-
-              while [ $SECONDS -lt $fim ]; do
-                echo "[$(date)] Rodando tarefa inútil..." >> "$HOME/persist/tarefa-inutil.log"
-                sleep 30
-              done
-
-              echo "[$(date)] Tarefa inútil finalizada. Aguardando 25 minutos..." >> "$HOME/persist/tarefa-inutil.log"
-              sleep 1500
-            done
-          ) &
 
           Xvfb :99 -screen 0 1600x900x24 > /tmp/xvfb.log 2>&1 &
           export DISPLAY=:99
@@ -72,17 +52,25 @@ jobs:
           sleep 3
 
           x11vnc -display :99 -forever -shared -rfbport 5900 \
-            -nopw -quiet > /tmp/x11vnc.log 2>&1 &
+            -passwd "$VPS_PASSWORD" -quiet > /tmp/x11vnc.log 2>&1 &
+          sleep 3
 
           websockify --web=/usr/share/novnc 6080 localhost:5900 > /tmp/novnc.log 2>&1 &
 
           for i in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:6080/vnc.html > /dev/null; then break; fi
+            if curl --fail --silent http://127.0.0.1:6080/vnc.html > /dev/null; then
+              break
+            fi
             sleep 2
           done
 
           if ! curl --fail --silent http://127.0.0.1:6080/vnc.html > /dev/null; then
             echo 'O noVNC não iniciou corretamente.'
+            echo '--- Xvfb ---'; cat /tmp/xvfb.log || true
+            echo '--- XFCE ---'; cat /tmp/xfce.log || true
+            echo '--- Chrome ---'; cat /tmp/chrome.log || true
+            echo '--- x11vnc ---'; cat /tmp/x11vnc.log || true
+            echo '--- noVNC ---'; cat /tmp/novnc.log || true
             exit 1
           fi
 
@@ -109,21 +97,16 @@ jobs:
             echo "**Link para acessar:** $ACCESS_URL"
             echo ''
             echo "**Usuário da sessão:** \`$VPS_USER\`"
-            echo '**Acesso sem senha ativado. Qualquer pessoa com o link poderá acessar o desktop.**'
+            echo '**Senha VNC:** a que você definiu ao iniciar o workflow'
             echo ''
-            echo '**Backup seguro:** salve seus arquivos em `~/persist`. Ao encerrar a execução, o backup aparecerá como artifact `linux-web-pc-backup`.'
+            echo 'Abra o link e digite a senha VNC quando solicitada.'
           } >> "$GITHUB_STEP_SUMMARY"
 
+          echo '===================================================='
+          echo 'SEU PC LINUX ESTÁ PRONTO'
           echo "LINK PARA ACESSAR: $ACCESS_URL"
+          echo "USUÁRIO DA SESSÃO: $VPS_USER"
+          echo 'SENHA VNC: a que você definiu ao iniciar o workflow'
+          echo '===================================================='
 
-          # Mantém o workflow ativo por 5 horas e 45 minutos.
-          sleep 20700
-
-      - name: Salvar arquivos persistentes como backup
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-web-pc-backup
-          path: /home/runner/persist
-          if-no-files-found: warn
-          retention-days: 7
+          wait
