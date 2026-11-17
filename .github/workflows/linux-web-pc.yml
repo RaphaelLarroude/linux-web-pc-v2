@@ -23,6 +23,7 @@ jobs:
           set -e
 
           sudo apt-get update
+
           sudo apt-get install -y \
             xfce4 \
             xfce4-terminal \
@@ -31,7 +32,6 @@ jobs:
             x11vnc \
             novnc \
             websockify \
-            neofetch \
             tmate \
             wget \
             curl \
@@ -84,11 +84,16 @@ jobs:
 
           if ! curl --fail --silent http://127.0.0.1:6080/vnc.html > /dev/null; then
             echo 'O noVNC não iniciou corretamente.'
-            echo '--- Xvfb ---'; cat /tmp/xvfb.log || true
-            echo '--- XFCE ---'; cat /tmp/xfce.log || true
-            echo '--- Chrome ---'; cat /tmp/chrome.log || true
-            echo '--- x11vnc ---'; cat /tmp/x11vnc.log || true
-            echo '--- noVNC ---'; cat /tmp/novnc.log || true
+            echo '--- Xvfb ---'
+            cat /tmp/xvfb.log || true
+            echo '--- XFCE ---'
+            cat /tmp/xfce.log || true
+            echo '--- Chrome ---'
+            cat /tmp/chrome.log || true
+            echo '--- x11vnc ---'
+            cat /tmp/x11vnc.log || true
+            echo '--- noVNC ---'
+            cat /tmp/novnc.log || true
             exit 1
           fi
 
@@ -97,9 +102,11 @@ jobs:
           URL=""
           for i in $(seq 1 60); do
             URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' /tmp/cloudflared.log | head -n1 || true)
+
             if [ -n "$URL" ]; then
               break
             fi
+
             sleep 2
           done
 
